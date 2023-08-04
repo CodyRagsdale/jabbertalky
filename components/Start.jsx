@@ -8,12 +8,30 @@ import {
   ScrollView,
   ImageBackground,
 } from "react-native";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const Start = ({ navigation }) => {
   const [name, setName] = useState("");
   const [selectedColor, setSelectedColor] = useState("#090C08");
 
   const colors = ["#5680E9", "#84CEEB", "#5AB9EA", "#C1C8E4", "#8860D0"];
+
+  const startChatting = async () => {
+    const auth = getAuth();
+    signInAnonymously(auth)
+      .then((userCredential) => {
+        const user = userCredential.user;
+
+        navigation.navigate("Chat", {
+          name: name,
+          color: selectedColor,
+          userId: user.uid,
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+  };
 
   return (
     <ImageBackground
@@ -44,9 +62,7 @@ const Start = ({ navigation }) => {
       </ScrollView>
       <TouchableOpacity
         style={[styles.button, { backgroundColor: selectedColor }]}
-        onPress={() =>
-          navigation.navigate("Chat", { name: name, color: selectedColor })
-        }
+        onPress={startChatting}
       >
         <Text
           style={[
