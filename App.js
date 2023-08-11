@@ -1,39 +1,37 @@
-//App.js
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth"; // Import the Auth module
-import Start from "./components/Start";
-import Chat from "./components/Chat";
+import { useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import NetInfo, { useNetInfo } from "@react-native-community/netinfo";
+import { disableNetwork, enableNetwork } from "firebase/firestore";
+import Start from "./components/Start";
+import Chat from "./components/Chat";
+import { db } from "./FirebaseConfig";
 
 const Stack = createNativeStackNavigator();
 
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBo2SeEc_0vOLhNW2rQ6d_QvgvcDupV0sY",
-  authDomain: "jabbertalky-6b813.firebaseapp.com",
-  projectId: "jabbertalky-6b813",
-  storageBucket: "jabbertalky-6b813.appspot.com",
-  messagingSenderId: "467278910517",
-  appId: "1:467278910517:web:42e9f74d89d20586f0cd7c",
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-// Initialize Firestore
-export const db = getFirestore();
-
-// Initialize Firebase Auth
-export const auth = getAuth();
-
 const App = () => {
+  const netInfo = useNetInfo();
+
+  useEffect(() => {
+    if (netInfo.isConnected && netInfo.isInternetReachable) {
+      enableNetwork(db);
+    } else {
+      disableNetwork(db);
+    }
+  }, [netInfo]);
+
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Start">
         <Stack.Screen name="Start" component={Start} />
-        <Stack.Screen name="Chat" component={Chat} />
+        <Stack.Screen name="Chat">
+          {(props) => (
+            <Chat
+              {...props}
+              isConnected={netInfo.isConnected && netInfo.isInternetReachable}
+            />
+          )}
+        </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
   );
