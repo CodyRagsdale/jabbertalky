@@ -1,162 +1,198 @@
-import React, { useState, useEffect } from "react";
-import { GiftedChat } from "react-native-gifted-chat";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from 'react';
 import {
+  StyleSheet,
   View,
-  Platform,
-  KeyboardAvoidingView,
-  TextInput,
-  TouchableOpacity,
   Text,
-  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
   Keyboard,
-} from "react-native";
+  ActivityIndicator,
+} from 'react-native';
+import { Bubble, GiftedChat, InputToolbar } from 'react-native-gifted-chat';
 import {
-  collection,
   addDoc,
-  query,
-  orderBy,
+  doc,
   onSnapshot,
-  onSnapshotsInSync,
-} from "firebase/firestore";
-import { db } from "../FirebaseConfig";
+  orderBy,
+  query,
+  collection,
+} from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CustomActions from './CustomActions';
+import MapView from 'react-native-maps';
 
-const Chat = ({ route, navigation, isConnected }) => {
+//Main Chat Component
+const Chat = ({ db, route, navigation, isConnected, storage }) => {
+  //Destructure params from the route
   const { name, color, userId } = route.params;
+
+  //State to manage messages and loading status
   const [messages, setMessages] = useState([]);
-  const [messageText, setMessageText] = useState("");
-  const [isFirestoreOnline, setFirestoreOnline] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
+  //Function to send new messages
+  const onSend = newMessages => {
+    addDoc(collection(db, 'messages'), newMessages[0]);
+  };
+
+  //Customize appearance of message bubbles
+  const renderBubble = props => {
+    return (
+      <Bubble
+        {...props}
+        wrapperStyle={{
+          right: {
+            backgroundColor: '#d1edf2', // Light grey for better contrast
+            borderBottomRightRadius: 0,
+            borderBottomLeftRadius: 15,
+            borderTopRightRadius: 15,
+            borderTopLeftRadius: 15,
+          },
+          left: {
+            backgroundColor: '#e6e6e6', // Light blue for the other user
+            borderBottomRightRadius: 15,
+            borderBottomLeftRadius: 15,
+            borderTopRightRadius: 15,
+            borderTopLeftRadius: 0,
+          },
+        }}
+        textStyle={{
+          right: {
+            color: '#333333', // Dark text for high contrast
+          },
+          left: {
+            color: '#333333', // Dark text for high contrast
+          },
+        }}
+      />
+    );
+  };
+
+  //Initialize and manage Firestore snapshot and message caching
   useEffect(() => {
-    navigation.setOptions({ title: `${name}'s Chat` });
-    const fetchMessages = async () => {
-      if (!isConnected) {
-        try {
-          const cachedMessages = await AsyncStorage.getItem("messages");
-          if (cachedMessages) {
-            setMessages(JSON.parse(cachedMessages));
-          }
-        } catch (error) {
-          console.error("Failed to load cached messages:", error);
-        }
-      } else {
-        const messagesCollection = collection(db, "messages");
-        const q = query(messagesCollection, orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          let newMessages = [];
-          querySnapshot.forEach((doc) => {
-            let data = doc.data();
-            newMessages.push({
-              _id: doc.id,
-              text: data.text,
-              createdAt: new Date(data.createdAt.seconds * 1000),
-              user: data.user,
-            });
+    setIsLoading(true);
+    navigation.setOptions({ title: name });
+    let unsubChat;
+    if (isConnected === true) {
+      if (unsubChat) unsubChat();
+      unsubChat = null;
+
+      const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'));
+      unsubChat = onSnapshot(q, documentsSnapshot => {
+        let newMessagesList = [];
+        documentsSnapshot.forEach(doc => {
+          newMessagesList.push({
+            _id: doc.id,
+            ...doc.data(),
+            createdAt: new Date(doc.data().createdAt.toMillis()),
           });
-          setMessages(newMessages);
-
-          // Cache the messages
-          AsyncStorage.setItem("messages", JSON.stringify(newMessages));
         });
-        return () => unsubscribe();
-      }
-    };
+        cacheMessages(newMessagesList);
+        setMessages(newMessagesList);
+      });
+      setIsLoading(false);
+    } else loadCachedMessages();
 
-    fetchMessages();
+    return () => {
+      if (unsubChat) unsubChat();
+    };
   }, [isConnected]);
 
-  useEffect(() => {
-    const unsubscribeSync = onSnapshotsInSync(db, () => {
-      setFirestoreOnline(true);
-    });
-    return () => unsubscribeSync();
-  }, []);
-
-  useEffect(() => {
-    if (!isConnected || !isFirestoreOnline) {
-      Keyboard.dismiss();
-    }
-  }, [isConnected, isFirestoreOnline]);
-
-  const onSend = () => {
-    if (messageText.length > 0) {
-      const newMessage = {
-        _id: Math.random().toString(),
-        text: messageText,
-        createdAt: new Date(),
-        user: {
-          _id: userId,
-          name: name,
-        },
-      };
-
-      const messagesCollection = collection(db, "messages");
-      addDoc(messagesCollection, {
-        text: newMessage.text,
-        createdAt: newMessage.createdAt,
-        user: newMessage.user,
-      });
-
-      setMessages((previousMessages) =>
-        GiftedChat.append(previousMessages, newMessage)
-      );
-      setMessageText("");
+  //Function to cache messages in AsyncStorage
+  const cacheMessages = async messagesToCache => {
+    try {
+      await AsyncStorage.setItem('messages', JSON.stringify(messagesToCache));
+    } catch (error) {
+      console.log(error.message);
     }
   };
 
+  //Function to load cached messages
+  const loadCachedMessages = async () => {
+    const cachedMessages = (await AsyncStorage.getItem('messages')) || [];
+    setMessages(JSON.parce(cachedMessages));
+  };
+
+  //Render the input toolbar only when connected
+  const renderInputToolBar = props => {
+    if (isConnected) {
+      return (
+        <InputToolbar
+          {...props}
+          containerStyle={{ marginBottom: 2, padding: 2 }}
+        />
+      );
+    } else {
+      return null;
+    }
+  };
+
+  //Points to CustomActions component for use in the chat
+  const renderCustomActions = props => {
+    return <CustomActions storage={storage} {...props} />;
+  };
+
+  //Render custom view for location messages
+  const renderCustomView = props => {
+    const { currentMessage } = props;
+    if (currentMessage.location) {
+      return (
+        <MapView
+          style={{ width: 150, height: 100, borderRadius: 13, margin: 3 }}
+          region={{
+            latitude: currentMessage.location.latitude,
+            longitude: currentMessage.location.longitude,
+            latitudeDelta: 0.0922,
+            longitudeDelta: 0.0421,
+          }}
+        />
+      );
+    }
+    return null;
+  };
+
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={{ flex: 1, backgroundColor: color }}>
+    <View style={[{ backgroundColor: color }, styles.container]}>
+      {isLoading ? (
+        <ActivityIndicator size="large" color="#000000" />
+      ) : (
         <GiftedChat
-          renderUsernameOnMessage
+          keyboardShouldPersistTaps={'never'}
+          style={styles.textBox}
           messages={messages}
+          renderBubble={renderBubble}
+          renderInputToolbar={renderInputToolBar}
+          onSend={messages => onSend(messages)}
+          renderActions={renderCustomActions}
+          renderCustomView={renderCustomView}
+          renderUsernameOnMessage={true}
+          onTouchStart={() => Keyboard.dismiss()}
           user={{
             _id: userId,
-            name: name,
+            name,
           }}
-          renderInputToolbar={() => null} // This will remove the default input bar
         />
-        {isConnected && isFirestoreOnline ? (
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 85 : 0}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                borderColor: "gray",
-                borderWidth: 1,
-                borderRadius: 20,
-                padding: 10,
-                margin: 10,
-                backgroundColor: "white",
-              }}
-            >
-              <TextInput
-                value={messageText}
-                onChangeText={setMessageText}
-                placeholder="Type a message..."
-                style={{
-                  flex: 1,
-                  marginRight: 10,
-                }}
-              />
-              <TouchableOpacity
-                onPress={onSend}
-                style={{
-                  backgroundColor: "#0645AD",
-                  padding: 10,
-                  borderRadius: 5,
-                }}
-              >
-                <Text style={{ color: "white" }}>Send</Text>
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        ) : null}
-      </View>
-    </TouchableWithoutFeedback>
+      )}
+      {Platform.OS === 'android' ? (
+        <KeyboardAvoidingView behavior="height" />
+      ) : null}
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  text: {
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 600,
+  },
+  textBox: {
+    flex: 1,
+    padding: 10,
+  },
+});
 
 export default Chat;
